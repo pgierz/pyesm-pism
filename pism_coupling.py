@@ -4,14 +4,66 @@ Allows for coupling from a generic ``atmosphere`` model to ``PISM``
 
 - - - -
 """
-
+# Standard Library Imports:
 import glob
+import logging
+import os
+import tempfile
 
+# This Library Imports:
+from pyesm.component.component_coupling import ComponentCouple
+from pyesm.pism.pism_simulation import PismCompute
+from pyesm.helpers import load_environmental_variable_1_0, ComponentFile, FileDict
+from pyesm.time_control import CouplingEsmCalendar
+
+# External Imports
 import cdo
 import nco
 
 CDO = cdo.Cdo()
 NCO = nco.Nco()
+
+class PismCouple(PismCompute, ComponentCouple):
+    """ Functionality to couple PISM with other models """
+    COMPATIBLE_COUPLE_TYPES = ["atmoshpere", "solid_earth"]
+
+    def __init__(self, **PismComputeArgs):
+        super(PismCouple, self).__init__(**PismCompute)
+
+    def send_solid_earth(self):
+        """ Sends a generic ice sheet field for use with a solid earth model"""
+        self._generate_solid_earth_forcing_file()
+        self._write_grid_description()
+        self._write_variable_description()
+        # TODO: Can the next lines go in a decorator?
+        self.files['couple'].digest()
+        for tmpfile in self._cleanup_list:
+            os.remove(tmpfile)
+        self.CDO.cleanTempDir()
+
+    def _generate_solid_earth_forcing_file(self):
+        """ Generates a solid earth forcing from ice output. 
+
+        Some questions that still need to be clarified:
+        1. Do we want to send the newest timestep?
+        2. What happens if PISM restarts during a few chunks?
+        """
+        last_timestep_of_extra_file = self.CDO.seltimestep("-1", input=self.files["outdata"]["pism_extra"]._current_location)
+        ofile = self.CDO.selvar("thk", input=last_timestep_of_extra_file)
+        self.files["couple"][self.Type+"_file"] = ComponentFile(src=ofile, dest=self.couple_dir+"/"+self.Type+"_file_for_solid_earth.nc")
+
+    def _write_grid_description(self):
+        """ Gets the currently appropriate PISM grid in the couple dir """
+        self.files["couple"][self.Type+"_grid"] = (self.POOL_DIR+"/".join(["grids", self.DOMAIN])
+                                                   + "/" 
+                                                   + "_".join([self.EXECUTABLE, self.DOMAIN, self.LATERAL_RESOLUTION]))
+
+    def _write_variable_description(self):
+        """Writes variable description """
+        with open(self.couple_dir+"/"+self.Type+"_variables.dat", "w") as variable_file:
+            # Thickness
+            variable_file.write("ice_thickness_variablename=thk\n")
+            variable_file.write("ice_thicness_units=m\n")
 
 class atmosphere_to_pism(object):
     """ Contains functionality to take a generic atmosphere forcing and make it ``PISM`` friendly """
