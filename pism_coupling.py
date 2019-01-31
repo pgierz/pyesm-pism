@@ -6,6 +6,7 @@ Allows for coupling from a generic ``atmosphere`` model to ``PISM``
 """
 # Standard Library Imports:
 import glob
+import json
 import logging
 import os
 import tempfile
@@ -28,7 +29,7 @@ class PismCouple(PismCompute, ComponentCouple):
     COMPATIBLE_COUPLE_TYPES = ["atmoshpere", "solid_earth"]
 
     def __init__(self, **PismComputeArgs):
-        super(PismCouple, self).__init__(**PismCompute)
+        super(PismCouple, self).__init__(**PismComputeArgs)
 
     def send_solid_earth(self):
         """ Sends a generic ice sheet field for use with a solid earth model"""
@@ -48,15 +49,17 @@ class PismCouple(PismCompute, ComponentCouple):
         1. Do we want to send the newest timestep?
         2. What happens if PISM restarts during a few chunks?
         """
-        last_timestep_of_extra_file = self.CDO.seltimestep("-1", input=self.files["outdata"]["pism_extra"]._current_location)
+        last_timestep_of_extra_file = self.CDO.seltimestep("-1", input=self.files["outdata"]["extra"]._current_location)
         ofile = self.CDO.selvar("thk", input=last_timestep_of_extra_file)
         self.files["couple"][self.Type+"_file"] = ComponentFile(src=ofile, dest=self.couple_dir+"/"+self.Type+"_file_for_solid_earth.nc")
 
     def _write_grid_description(self):
         """ Gets the currently appropriate PISM grid in the couple dir """
-        self.files["couple"][self.Type+"_grid"] = (self.POOL_DIR+"/".join(["grids", self.DOMAIN])
-                                                   + "/" 
-                                                   + "_".join([self.EXECUTABLE, self.DOMAIN, self.LATERAL_RESOLUTION]))
+        self.files["couple"][self.Type+"_grid"] = ComponentFile(src=self.POOL_DIR+"/".join(["", "grids", self.Domain])
+                                                                    + "/"
+                                                                    + "_".join([self.Executable, self.Domain, self.LateralResolution])
+                                                                    +".griddes",
+                                                                dest=self.couple_dir+"/"+self.Type+".griddes")
 
     def _write_variable_description(self):
         """Writes variable description """
@@ -144,7 +147,8 @@ class atmosphere_to_pism(object):
             else:
                 # TODO: Make CouplingError a real thing...
                 raise CouplingError("Insufficient information for hi resolution elevation, sorry!")
-            hi_res_elevation = self.files["couple"]["hi_res_elevation"] = ComponentFile(src=hi_res_elevation, dest="hi_res_elevation_"+self.Name+"_"+str(self.calendar)+".nc"
+            hi_res_elevation = self.files["couple"]["hi_res_elevation"] \
+                            = ComponentFile(src=hi_res_elevation, dest="hi_res_elevation_"+self.Name+"_"+str(self.calendar)+".nc")
             return CDO.sub(input=hi_res_elevation+" "+self.files["couple"]["lo_res_elevation"])
     
         def _regrid_downscale_temperature(self):
